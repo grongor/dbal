@@ -1204,8 +1204,6 @@ class Connection implements DriverConnection
         $this->beginTransaction();
         try {
             $res = $func($this);
-            $this->commit();
-            return $res;
         } catch (Exception $e) {
             $this->rollBack();
             throw $e;
@@ -1213,6 +1211,10 @@ class Connection implements DriverConnection
             $this->rollBack();
             throw $e;
         }
+
+        $this->commit();
+
+        return $res;
     }
 
     /**
@@ -1315,7 +1317,13 @@ class Connection implements DriverConnection
             if ($logger) {
                 $logger->startQuery('"COMMIT"');
             }
-            $this->_conn->commit();
+            try {
+                $this->_conn->commit();
+            } catch (Throwable $ex) {
+                $this->commitDone();
+
+                throw DBALException::driverExceptionDuringQuery($this->_driver, $ex, 'COMMIT');
+            }
             if ($logger) {
                 $logger->stopQuery();
             }
@@ -1329,6 +1337,11 @@ class Connection implements DriverConnection
             }
         }
 
+        $this->commitDone();
+    }
+
+    private function commitDone()
+    {
         --$this->_transactionNestingLevel;
 
         if (false === $this->autoCommit && 0 === $this->_transactionNestingLevel) {
