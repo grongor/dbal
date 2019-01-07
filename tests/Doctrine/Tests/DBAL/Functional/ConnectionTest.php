@@ -4,20 +4,23 @@ namespace Doctrine\Tests\DBAL\Functional;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ConnectionException;
+use Doctrine\DBAL\DBALException;
 use Doctrine\DBAL\Driver\Connection as DriverConnection;
+use Doctrine\DBAL\Driver\ExceptionConverterDriver;
 use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
+use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\Tests\DbalFunctionalTestCase;
 use Error;
-use Exception;
-use RuntimeException;
-use Throwable;
 use function in_array;
 
 class ConnectionTest extends DbalFunctionalTestCase
 {
+    private const TABLE = 'connection_test';
+
     protected function setUp()
     {
         $this->resetSharedConn();
@@ -46,28 +49,30 @@ class ConnectionTest extends DbalFunctionalTestCase
 
     public function testTransactionNestingBehavior()
     {
+        $this->createTestTable();
+
         try {
             $this->connection->beginTransaction();
-            self::assertEquals(1, $this->connection->getTransactionNestingLevel());
+            self::assertSame(1, $this->connection->getTransactionNestingLevel());
 
             try {
                 $this->connection->beginTransaction();
-                self::assertEquals(2, $this->connection->getTransactionNestingLevel());
-                throw new Exception();
-                $this->connection->commit(); // never reached
-            } catch (Throwable $e) {
+                self::assertSame(2, $this->connection->getTransactionNestingLevel());
+                $this->connection->insert(self::TABLE, ['id' => 1]);
+                self::fail('Expected exception to be thrown because of the unique constraint.');
+            } catch (DBALException $e) {
+                $this->assertIsUniqueConstraintException($e);
                 $this->connection->rollBack();
-                self::assertEquals(1, $this->connection->getTransactionNestingLevel());
-                //no rethrow
+                self::assertSame(1, $this->connection->getTransactionNestingLevel());
             }
             self::assertTrue($this->connection->isRollbackOnly());
 
             $this->connection->commit(); // should throw exception
-            $this->fail('Transaction commit after failed nested transaction should fail.');
+            self::fail('Transaction commit after failed nested transaction should fail.');
         } catch (ConnectionException $e) {
-            self::assertEquals(1, $this->connection->getTransactionNestingLevel());
+            self::assertSame(1, $this->connection->getTransactionNestingLevel());
             $this->connection->rollBack();
-            self::assertEquals(0, $this->connection->getTransactionNestingLevel());
+            self::assertSame(0, $this->connection->getTransactionNestingLevel());
         }
     }
 
@@ -77,35 +82,37 @@ class ConnectionTest extends DbalFunctionalTestCase
             $this->markTestSkipped('This test requires the platform to support savepoints.');
         }
 
+        $this->createTestTable();
+
         $this->connection->setNestTransactionsWithSavepoints(true);
         try {
             $this->connection->beginTransaction();
-            self::assertEquals(1, $this->connection->getTransactionNestingLevel());
+            self::assertSame(1, $this->connection->getTransactionNestingLevel());
 
             try {
                 $this->connection->beginTransaction();
-                self::assertEquals(2, $this->connection->getTransactionNestingLevel());
+                self::assertSame(2, $this->connection->getTransactionNestingLevel());
                 $this->connection->beginTransaction();
-                self::assertEquals(3, $this->connection->getTransactionNestingLevel());
+                self::assertSame(3, $this->connection->getTransactionNestingLevel());
                 $this->connection->commit();
-                self::assertEquals(2, $this->connection->getTransactionNestingLevel());
-                throw new Exception();
-                $this->connection->commit(); // never reached
-            } catch (Throwable $e) {
+                self::assertSame(2, $this->connection->getTransactionNestingLevel());
+                $this->connection->insert(self::TABLE, ['id' => 1]);
+                self::fail('Expected exception to be thrown because of the unique constraint.');
+            } catch (DBALException $e) {
+                $this->assertIsUniqueConstraintException($e);
                 $this->connection->rollBack();
-                self::assertEquals(1, $this->connection->getTransactionNestingLevel());
-                //no rethrow
+                self::assertSame(1, $this->connection->getTransactionNestingLevel());
             }
             self::assertFalse($this->connection->isRollbackOnly());
             try {
                 $this->connection->setNestTransactionsWithSavepoints(false);
-                $this->fail('Should not be able to disable savepoints in usage for nested transactions inside an open transaction.');
+                self::fail('Should not be able to disable savepoints in usage for nested transactions inside an open transaction.');
             } catch (ConnectionException $e) {
                 self::assertTrue($this->connection->getNestTransactionsWithSavepoints());
             }
             $this->connection->commit(); // should not throw exception
         } catch (ConnectionException $e) {
-            $this->fail('Transaction commit after failed nested transaction should not fail when using savepoints.');
+            self::fail('Transaction commit after failed nested transaction should not fail when using savepoints.');
             $this->connection->rollBack();
         }
     }
@@ -171,45 +178,45 @@ class ConnectionTest extends DbalFunctionalTestCase
 
     public function testTransactionBehaviorWithRollback()
     {
+        $this->createTestTable();
+
         try {
             $this->connection->beginTransaction();
-            self::assertEquals(1, $this->connection->getTransactionNestingLevel());
+            self::assertSame(1, $this->connection->getTransactionNestingLevel());
 
-            throw new Exception();
-
-            $this->connection->commit(); // never reached
-        } catch (Throwable $e) {
-            self::assertEquals(1, $this->connection->getTransactionNestingLevel());
+            $this->connection->insert(self::TABLE, ['id' => 1]);
+            self::fail('Expected exception to be thrown because of the unique constraint.');
+        } catch (DBALException $e) {
+            $this->assertIsUniqueConstraintException($e);
+            self::assertSame(1, $this->connection->getTransactionNestingLevel());
             $this->connection->rollBack();
-            self::assertEquals(0, $this->connection->getTransactionNestingLevel());
+            self::assertSame(0, $this->connection->getTransactionNestingLevel());
         }
     }
 
     public function testTransactionBehaviour()
     {
-        try {
-            $this->connection->beginTransaction();
-            self::assertEquals(1, $this->connection->getTransactionNestingLevel());
-            $this->connection->commit();
-        } catch (Throwable $e) {
-            $this->connection->rollBack();
-            self::assertEquals(0, $this->connection->getTransactionNestingLevel());
-        }
+        $this->createTestTable();
 
-        self::assertEquals(0, $this->connection->getTransactionNestingLevel());
+        $this->connection->beginTransaction();
+        self::assertSame(1, $this->connection->getTransactionNestingLevel());
+        $this->connection->insert(self::TABLE, ['id' => 2]);
+        $this->connection->commit();
+        self::assertSame(0, $this->connection->getTransactionNestingLevel());
     }
 
     public function testTransactionalWithException()
     {
+        $this->createTestTable();
+
         try {
-            $this->connection->transactional(static function ($conn) {
-                /** @var Connection $conn */
-                $conn->executeQuery($conn->getDatabasePlatform()->getDummySelectSQL());
-                throw new RuntimeException('Ooops!');
+            $this->connection->transactional(static function (Connection $connection) : void {
+                $connection->insert(self::TABLE, ['id' => 1]);
             });
-            $this->fail('Expected exception');
-        } catch (RuntimeException $expected) {
-            self::assertEquals(0, $this->connection->getTransactionNestingLevel());
+            self::fail('Expected exception to be thrown because of the unique constraint.');
+        } catch (DBALException $e) {
+            $this->assertIsUniqueConstraintException($e);
+            self::assertSame(0, $this->connection->getTransactionNestingLevel());
         }
     }
 
@@ -229,12 +236,14 @@ class ConnectionTest extends DbalFunctionalTestCase
 
     public function testTransactional()
     {
-        $res = $this->connection->transactional(static function ($conn) {
-            /** @var Connection $conn */
-            $conn->executeQuery($conn->getDatabasePlatform()->getDummySelectSQL());
+        $this->createTestTable();
+
+        $res = $this->connection->transactional(static function (Connection $connection) {
+            $connection->insert(self::TABLE, ['id' => 2]);
         });
 
         self::assertNull($res);
+        self::assertSame(0, $this->connection->getTransactionNestingLevel());
     }
 
     public function testTransactionalReturnValue()
@@ -310,5 +319,25 @@ class ConnectionTest extends DbalFunctionalTestCase
         self::assertSame($params, $connection->getParams());
 
         $connection->close();
+    }
+
+    private function createTestTable() : void
+    {
+        $table = new Table(self::TABLE);
+        $table->addColumn('id', 'integer');
+        $table->setPrimaryKey(['id']);
+
+        $this->connection->getSchemaManager()->dropAndCreateTable($table);
+
+        $this->connection->insert(self::TABLE, ['id' => 1]);
+    }
+
+    private function assertIsUniqueConstraintException(DBALException $exception) : void
+    {
+        if (! $this->connection->getDriver() instanceof ExceptionConverterDriver) {
+            return;
+        }
+
+        self::assertInstanceOf(UniqueConstraintViolationException::class, $exception);
     }
 }
