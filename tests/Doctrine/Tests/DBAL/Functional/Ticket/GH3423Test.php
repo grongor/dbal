@@ -20,10 +20,6 @@ class GH3423Test extends DbalFunctionalTestCase
     {
         parent::setUp();
 
-        if ($this->connection->getDatabasePlatform()->getName() !== 'postgresql') {
-            $this->markTestSkipped('Only databases supporting deferrable constraints are eligible for this test.');
-        }
-
         if (self::$tableCreated) {
             return;
         }
