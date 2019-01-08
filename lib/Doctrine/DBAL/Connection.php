@@ -1288,7 +1288,7 @@ class Connection implements DriverConnection
             try {
                 $this->_conn->commit();
             } catch (Throwable $ex) {
-                $this->commitDone();
+                $this->updateTransactionStateAfterCommit();
 
                 throw DBALException::driverExceptionDuringQuery($this->_driver, $ex, 'COMMIT');
             }
@@ -1305,10 +1305,10 @@ class Connection implements DriverConnection
             }
         }
 
-        $this->commitDone();
+        $this->updateTransactionStateAfterCommit();
     }
 
-    private function commitDone()
+    private function updateTransactionStateAfterCommit() : void
     {
         --$this->transactionNestingLevel;
 

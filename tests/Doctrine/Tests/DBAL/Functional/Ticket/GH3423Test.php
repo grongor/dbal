@@ -7,6 +7,7 @@ namespace Doctrine\Tests\DBAL\Functional\Ticket;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DBALException;
 use Doctrine\Tests\DbalFunctionalTestCase;
+use function in_array;
 
 /**
  * @see https://github.com/doctrine/dbal/issues/3423
@@ -20,7 +21,7 @@ class GH3423Test extends DbalFunctionalTestCase
     {
         parent::setUp();
 
-        if ($this->connection->getDatabasePlatform()->getName() !== 'postgresql') {
+        if (! in_array($this->connection->getDatabasePlatform()->getName(), ['postgresql', 'oracle'], true)) {
             $this->markTestSkipped('Only databases supporting deferrable constraints are eligible for this test.');
         }
 
