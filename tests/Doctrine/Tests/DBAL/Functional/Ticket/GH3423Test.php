@@ -56,12 +56,12 @@ class GH3423Test extends DbalFunctionalTestCase
      */
     public function testTransactionalWithDeferredConstraint() : void
     {
-        $this->expectException(DBALException::class);
-        $this->expectExceptionMessage('violates unique constraint "gh3423_unique"');
-
-        $this->connection->transactional(static function (Connection $connection) : void {
+        $this->connection->transactional(function (Connection $connection) : void {
             $connection->exec('SET CONSTRAINTS "gh3423_unique" DEFERRED');
             $connection->exec('INSERT INTO gh3423 VALUES (true)');
+
+            $this->expectException(DBALException::class);
+            $this->expectExceptionMessage('violates unique constraint "gh3423_unique"');
         });
     }
 
@@ -70,16 +70,16 @@ class GH3423Test extends DbalFunctionalTestCase
      */
     public function testTransactionalWithDeferredConstraintAndTransactionNesting() : void
     {
-        $this->expectException(DBALException::class);
-        $this->expectExceptionMessage('violates unique constraint "gh3423_unique"');
-
         $this->connection->setNestTransactionsWithSavepoints(true);
 
-        $this->connection->transactional(static function (Connection $connection) : void {
+        $this->connection->transactional(function (Connection $connection) : void {
             $connection->exec('SET CONSTRAINTS "gh3423_unique" DEFERRED');
             $connection->beginTransaction();
             $connection->exec('INSERT INTO gh3423 VALUES (true)');
             $connection->commit();
+
+            $this->expectException(DBALException::class);
+            $this->expectExceptionMessage('violates unique constraint "gh3423_unique"');
         });
     }
 
@@ -88,12 +88,13 @@ class GH3423Test extends DbalFunctionalTestCase
      */
     public function testCommitWithDeferredConstraint() : void
     {
-        $this->expectException(DBALException::class);
-        $this->expectExceptionMessage('violates unique constraint "gh3423_unique"');
-
         $this->connection->beginTransaction();
         $this->connection->exec('SET CONSTRAINTS "gh3423_unique" DEFERRED');
         $this->connection->exec('INSERT INTO gh3423 VALUES (true)');
+
+        $this->expectException(DBALException::class);
+        $this->expectExceptionMessage('violates unique constraint "gh3423_unique"');
+
         $this->connection->commit();
     }
 
@@ -102,9 +103,6 @@ class GH3423Test extends DbalFunctionalTestCase
      */
     public function testCommitWithDeferredConstraintAndTransactionNesting() : void
     {
-        $this->expectException(DBALException::class);
-        $this->expectExceptionMessage('violates unique constraint "gh3423_unique"');
-
         $this->connection->setNestTransactionsWithSavepoints(true);
 
         $this->connection->beginTransaction();
@@ -112,6 +110,10 @@ class GH3423Test extends DbalFunctionalTestCase
         $this->connection->beginTransaction();
         $this->connection->exec('INSERT INTO gh3423 VALUES (true)');
         $this->connection->commit();
+
+        $this->expectException(DBALException::class);
+        $this->expectExceptionMessage('violates unique constraint "gh3423_unique"');
+
         $this->connection->commit();
     }
 }
